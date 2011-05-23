@@ -1,0 +1,179 @@
+﻿<!doctype html>
+<html class="no-js" manifest="manifest.appcache">
+<head>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="MobileOptimized" content="320" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="apple-touch-icon-precomposed" href="icon.png" !-- 114x114px -- />
+  <link rel="shortcut icon" href="icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <link rel="apple-touch-startup-image" href="splash.png" !-- 320x460px -- />
+  <title>CS test</title>
+  <link rel="stylesheet"  href="http://code.jquery.com/mobile/1.0b1pre/jquery.mobile-1.0b1pre.css" />  
+</head>
+<body> 
+
+<div data-role="page" id="login">
+    <div data-role="header"> <h1>Settings</h1> </div>
+
+    <div data-role="content">   
+        <div id="loginstatus">Enter couchsurfing login information</div>
+        <div data-role="fieldcontain">
+            <label for="username">Username:</label>
+            <input type="text" name="username" id="username" value=""  />
+        </div>  
+        <div data-role="fieldcontain">
+            <label for="password">Password:</label>
+            <input type="password" name="password" id="password" value=""  />
+        </div>  
+        <button>Login</button>
+    </div>
+</div>
+
+<div data-role="page" id="inbox">
+    <div data-role="header"><a href="#settings" data-role="button">setup</a> <h1>Inbox</h1> </div>
+    <div data-role="content" id=inboxcontent>   
+    </div>
+</div>
+
+<div data-role="page" id="message">
+    <div data-role="header"><a onclick="inbox()">inbox</a><h1 id="message_title">Joe User</h1> </div>
+    <div data-role="content" id="message_content">   
+    </div>
+</div>
+
+<div data-role="page" id="compose">
+    <div data-role="header"> <h1>Mobile Couch</h1> </div>
+
+    <div data-role="content">   
+        <div>Message to Joe User:</div>
+        <div data-role="fieldcontain">
+            <label for="subject">Subject:</label>
+            <input type="text" name="subject" id="subject" value=""  />
+        </div>  
+        <div data-role="fieldcontain">
+            <label for="text">Textarea:</label>
+            <textarea cols="40" rows="8" name="text" id="text"></textarea>
+        </div>
+        <a href="#inbox" data-role="button">Send</a>
+    </div>
+</div>
+
+  <script src="http://code.jquery.com/jquery-1.6.1.js"></script>
+  <script src="http://code.jquery.com/mobile/1.0b1pre/jquery.mobile-1.0b1pre.js"></script>
+  <script src="https://github.com/janl/mustache.js/raw/master/mustache.js"></script>
+  <!--script src="http://documentcloud.github.com/underscore/underscore.js"></script>
+  <script src="http://documentcloud.github.com/backbone/backbone.js"></script-->
+<script>
+$("#username").val(localStorage.getItem("cs_username") || "");
+$("#password").val(localStorage.getItem("cs_password") || "");
+
+$("#login button").bind("click", function() {
+    localStorage.setItem("cs_username", $("#username").val());
+    localStorage.setItem("cs_password", $("#password").val());
+    inbox();
+});
+
+function inbox() {
+    $.mobile.pageLoading();
+    cs_ajax({
+        url: "http://www.couchsurfing.org/messages.html?message_status=inbox",
+        success: function(data) {
+            var messagerows= $(data).find(".messagesbox>form>table>tbody>tr")
+            var $messages = $("#messages");
+            $messages.html("");
+            var content = '<div data-role="page" id="inbox"><div data-role="header">' +
+                '<a onclick="$.mobile.changePage(\'#login\')">setup</a><h1>Inbox</h1></div><div data-role="content"><ul data-role="listview" id="messages">';
+            for(var i = 1; i < messagerows.length; ++i) {
+                /* var */ $msg = $(messagerows[i]);
+                var imgsrc = $msg.find("img").attr("src");
+                if(imgsrc.slice(0,4) !== "http") {
+                    imgsrc = "http://www.couchsurfing.org/" + imgsrc;
+                }
+                $a = $msg.find("a");
+                content += Mustache.to_html(
+                    '<li><a onclick="showMessage({{msg_id}})"><img src="{{img}}" /><p><strong>{{name}}</strong> &nbsp; {{date}} {{time}}</p> {{subject}}</a></li>',
+                    {   img: imgsrc,
+                        date: $msg.find(".numbering")[0].firstChild.data,
+                        time: $msg.find(".numbering")[0].lastChild.data,
+                        msg_id: $a[2].href.replace(RegExp(".*read="), ""),
+                        name: $a[1].text,
+                        subject: $a[2].text
+                    });
+            }
+            content += "</ul></div></div>";
+            $("#inbox").remove();
+            $("body").append(content).page();
+            $.mobile.changePage($("#inbox"));
+        }
+    });
+}
+function showMessage(id) {
+    cs_ajax({
+        url: "http://www.couchsurfing.org/messages.html?message_status=inbox&read=" + id,
+        success: function(data) {
+            $data = $(data);
+            $("#message_title").text($data.find('.message .messageread_title').text());
+            $("#message_content").html($data.find('.message>.body').html())
+            $.mobile.changePage("#message");
+    }});
+}
+
+first = true;
+function cs_ajax(req) {
+    var success = req.success;
+    var error = req.error;
+    req.success = handleResponse;
+    function handleResponse(data) {
+        if(data.match("\\[logout\\]")) {
+            req.success = success;
+            return success(data);
+        }
+        req.success = handleResponse2;
+        $.ajax({
+            url: "https://www.couchsurfing.org/login.html",
+            type: "POST",
+            data: { 
+                "auth_login[un]": $("#username").val(),
+                "auth_login[pw]": $("#password").val(),
+                "auth_login[persistant]":"yes",
+                "auth_login[action]":"Secure Login...",
+                "auth_login[timezone_offset]":"0",
+                "auth_login[coming_from]":""
+                },
+            error: error,
+            success: login_callback
+        });
+    }
+
+    function login_callback(data) {
+        if(data.match("auth_logout=1")) {
+            $.ajax(req);
+        } else {
+            $.mobile.pageLoading(true);
+            console.log(first);
+            if(!first) {
+                alert("Could not log in :(");
+            }
+            first = false;
+            $.mobile.changePage("#login");
+        }
+    }
+
+    function handleResponse2(data) {
+        if(data.match("auth_logout=1")) {
+            success(data);
+        } else {
+            error();
+        }
+    }
+
+    $.ajax(req);
+}
+
+$(document).ready(inbox);
+</script>
+</body>
+</html>
